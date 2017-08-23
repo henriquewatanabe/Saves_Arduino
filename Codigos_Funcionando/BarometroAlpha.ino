@@ -48,20 +48,31 @@ bool CalcAceleracao(unsigned int *ptrValorAcele, unsigned int *ptrAux)
 }
 // definições de variáveis globais
 //------------------variáveis editáveis-----------------
-unsigned int nCorMilisegundo = 75;          // tempo de milisegundo para efetuar a correção
+unsigned int //nCorMilisegundo = 80,             // tempo de milisegundo para efetuar a correção
+             nDelayCorrIncrement = 45,         // delay de incrementação correção
+             nDelayCorrDecrement = 80,         // delay de decrementação para correção
+             nGanhoSubida = 3,
+             nGanhoDescida = 1;                // obs ganho de descida representa o numero de diferença * ganho 
 //------------------------------------------------------
 //--
 //--
 // -----------------variáveis não editáveis--------------
 unsigned int nThrottle = 0,           // para o acelerador
              nThrottleControle = 0,   // para alterar valores na estabilização 
-             nAux = 0,
-             nUnidadeSub = 0;        // unidade para subtrair o valor oscilante do barometro
+             nThrottleComparador = 0, // para comparar a aceleração             
+             nAux = 0;
+             
+             
+int          nSubDiferenca = 0,       // para conter o valor da subtração
+             nSubDiferencaAnt = 0;    // diferença com o valor anterior
+             
 unsigned long lPressaoAnt = 0,       // para conter o valor da pressao anterior
               lPressaoAtu = 0,       // para conter a pressao atual 
               CorDelay = 0,          // delay de correção
               IncrementDelay = 0,    // delay de incrementação da aceleração 
-              DecrementDelay = 0;    // tempo de deley de decrementação
+              DecrementDelay = 0,    // tempo de deley de decrementação
+              IncDelayBar = 0,       // tempo para o ajuste do barometro
+              DecDelayBar = 0;       // tempo para o ajuste de decremento barometro
 bool LeituraDeAltura = true,         // para pegar o valor de altura   
      PrimeiraLeitura = true;
 //--------------------------------------------------------  
@@ -84,34 +95,76 @@ void loop() {
       if(LeituraDeAltura) // é verdadeiro?
       { // vamos pegar o valor da altura atual
         ObterPressao(&lPressaoAnt);        // pegar a pressao
-        nThrottleControle = nThrottle;  // guardar o valor da aceleração
+        nThrottleComparador = nThrottleControle = nThrottle;  // guardar o valor da aceleração
          
         LeituraDeAltura = false;        // indicar que já está ativo dentro da correção
       }        
-      // vamos ler a pressao para ver se houve variação       
-      if(millis() - CorDelay >= nCorMilisegundo) // tempo maior?
-      { 
-        CorDelay = millis();          // para receber o tempo atual        
-        ObterPressao(&lPressaoAtu);   // para pegar a pressao atual    
-        nUnidadeSub = ((lPressaoAtu % 100) % 10); // tirar a unidade de diferença
-        lPressaoAtu = lPressaoAtu - nUnidadeSub;  // subtrair a pressao atual com a unidade    
-        if(lPressaoAtu == lPressaoAnt) // pressao atu = ant?
-          esc.write(nThrottleControle);
-              
-        if(lPressaoAtu < (lPressaoAnt)) // subiu muito a altura?
-        {
-          if(nThrottleControle > 900)
-            nThrottleControle--;           
+      // vamos ler a pressao para ver se houve variação             
+      ObterPressao(&lPressaoAtu);   // para pegar a pressao atual        
+      lPressaoAtu = lPressaoAtu - (lPressaoAtu % 10); // pegar o resto para subtrair com o valor de oscilação atual
+      lPressaoAnt = lPressaoAnt - (lPressaoAnt % 10); // idem anterior
+      nSubDiferencaAnt = lPressaoAtu - lPressaoAnt;  // subtrair a diferença 
+      
+      if(nSubDiferencaAnt == 0)
+        esc.write(nThrottleControle);   // para escrever o valor da aceleração
+      if(nSubDiferencaAnt > 0)
+      {
+        if(nThrottleControle < (nThrottleComparador + nSubDiferencaAnt)) 
+        {              
+          nThrottleComparador = nThrottleControle;  // atribui o valor para o comparador do acelerador         
+          do
+          {
+            if(millis() - IncDelayBar > nDelayCorrIncrement)
+            {
+               IncDelayBar = millis();             
+               ObterPressao(&lPressaoAtu);   // para pegar a pressao atual
+               lPressaoAtu = lPressaoAtu - (lPressaoAtu % 10); // pegar o resto para subtrair com o valor de oscilação atual              
+               nSubDiferenca = lPressaoAtu - lPressaoAnt;  // subtrair a diferença 
+               if(nSubDiferenca < 0)
+                break;          // cai fora do loop
+               if(!CalcAceleracao(&nThrottle, &nAux))
+                  break;
+               // como não é negativo vamos continuar 
+               
+                if(nThrottleControle < 2100)
+                {
+                  nThrottleControle++; // aumentar a aceleração
+                  esc.write(nThrottleControle);   // para escrever o valor da aceleração                      
+                }
+             }          
+          }while(nThrottleControle < (nThrottleComparador + (nSubDiferencaAnt * nGanhoSubida)));     
+        } // if   
+      }  
+      // para subtrair o valor na altura     
+      else
+      {
+        if(nThrottleControle > (nThrottleComparador + nSubDiferencaAnt)) 
+        {           
+          nThrottleComparador = nThrottleControle;  // atribui o valor para o comparador do acelerador       
+          do
+          {
+            if(millis() - DecDelayBar > nDelayCorrDecrement)
+            {
+              DecDelayBar = millis();
+               ObterPressao(&lPressaoAtu);   // para pegar a pressao atual
+               lPressaoAtu = lPressaoAtu - (lPressaoAtu % 10); // pegar o resto para subtrair com o valor de oscilação atual               
+               nSubDiferenca = lPressaoAtu - lPressaoAnt;  // subtrair a diferença 
+               if(nSubDiferenca > 0)
+                break;          // cai fora do loop
+               // como não é positivo vamos continuar 
+               if(!CalcAceleracao(&nThrottle, &nAux))
+                  break;
+               if(nThrottle > 1100)
+               {
+                nThrottleControle--; // decrementar a aceleração
+                esc.write(nThrottleControle);   // para escrever o valor da aceleração                    
+               }
+            }          
+          }while(nThrottleControle > (nThrottleComparador + (nSubDiferencaAnt * nGanhoDescida)));          
         }
-        if(lPressaoAtu > lPressaoAnt) // desceu muito?
-        {
-          if(nThrottleControle < 2000)
-            nThrottleControle++;  
-        }        
-       }
-          esc.write(nThrottleControle);   // para escrever o valor da aceleração    
-          Serial.println(nThrottleControle);       
-    }
+       
+      } // nSubDiferenca < 0                              
+    } // while true
   } // if aux
   else
   {
@@ -132,7 +185,7 @@ void loop() {
       {          
         do
         {
-          if(millis() - IncrementDelay > 10)  // maior que 15 milisegundos
+          if(millis() - IncrementDelay > 5)  // maior que 5 milisegundos
           {
             IncrementDelay = millis();        // tempo atual
             nThrottleControle++;               // incrementa a aceleração
@@ -147,7 +200,7 @@ void loop() {
       {   // para decrementar se o acelerador estiver abaixo do valor corrigido
         do
         {
-          if(millis() - DecrementDelay > 10)  // maior que 15 milisegundos
+          if(millis() - DecrementDelay > 10)  // maior que 10 milisegundos
           {
             DecrementDelay = millis();        // tempo atual
             nThrottleControle--;               // incrementa a aceleração
