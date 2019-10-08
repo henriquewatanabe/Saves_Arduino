@@ -9,6 +9,7 @@
 
 int main(void)
 {
+  // editado com o GIT
   //Initialize port for LEDs
   DDRB= 0b00100000;
   PORTB = 0b00000000;

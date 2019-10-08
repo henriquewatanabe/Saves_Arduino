@@ -3,7 +3,7 @@
 Servo s1;
 
 
-
+// informação nova Editando via Git
 
 void setup() 
 {
