@@ -3,13 +3,13 @@
 //sensor
 #include "i2c_BMP280.h"
 BMP280 bmp280;
-
+// novo comentario
 void setup()
 {
     Serial.begin(9600);
 
     Serial.print("Probe BMP280: ");
-    if (bmp280.initialize()) 
+    if (bmp280.initialize())
       Serial.println("Sensor found");
     else
     {
@@ -58,4 +58,3 @@ A1.5.7: 9680b
 A1.6.3: 9664b / 561b
 
  */
-
